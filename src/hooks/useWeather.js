@@ -15,7 +15,6 @@ import { WMO_WEATHER_CODES, DEFAULT_MAPPING } from '../constants';
  * @returns {number} Feels-like temperature in °C
  */
 function calcFeelsLike(tempC, windKmh, humidity) {
-  const windMs = windKmh / 3.6; // Convert km/h to m/s
 
   if (tempC <= 10 && windKmh > 4.8) {
     // NWS Wind Chill (works in °F/mph, convert back)
@@ -53,9 +52,12 @@ function calcFeelsLike(tempC, windKmh, humidity) {
     return (hi - 32) * 5 / 9;
   }
 
-  // 10–27°C: Australian Apparent Temperature
+  // 10–27°C: Australian BOM Apparent Temperature
+  // Reference: Australian Bureau of Meteorology
   // AT = Ta + 0.33×e − 0.70×ws − 4.00
-  // e = (humidity / 100) × 6.105 × exp(17.27 × Ta / (237.7 + Ta))
+  // Units: Ta in °C, e in hPa, ws in m/s
+  // e (vapor pressure) = (RH/100) × 6.105 × exp(17.27×Ta / (237.7+Ta))
+  const windMs = windKmh / 3.6;
   const e = (humidity / 100) * 6.105 * Math.exp((17.27 * tempC) / (237.7 + tempC));
   return tempC + 0.33 * e - 0.70 * windMs - 4.00;
 }
@@ -86,12 +88,13 @@ export function useWeather({ returnTime, inventory, preferences }) {
         locationName = geoData.results[0].name;
       } else throw new Error("Invalid parameters.");
 
-      const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=auto`;
+      const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m,wind_gusts_10m&timezone=auto`;
       const response = await fetch(weatherUrl);
       const data = await response.json();
 
       const temp = data.current.temperature_2m;
-      const windKmh = data.current.wind_speed_10m;
+      // Use wind gusts for feels-like (closer to Apple Weather behavior)
+      const windKmh = data.current.wind_gusts_10m || data.current.wind_speed_10m;
       const humidity = data.current.relative_humidity_2m;
 
       // Calculate feels-like using standard formulas
