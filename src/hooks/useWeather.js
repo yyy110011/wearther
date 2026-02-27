@@ -2,6 +2,65 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { WMO_WEATHER_CODES, DEFAULT_MAPPING } from '../constants';
 
 /**
+ * Calculate "feels like" temperature using standard meteorological formulas.
+ *
+ * Uses a combined approach similar to Apple Weather:
+ * - Below 10°C: NWS Wind Chill Index (temp + wind)
+ * - Above 27°C: NWS Heat Index (temp + humidity)
+ * - 10–27°C: Australian Apparent Temperature (temp + humidity + wind)
+ *
+ * @param {number} tempC - Air temperature in °C
+ * @param {number} windKmh - Wind speed in km/h
+ * @param {number} humidity - Relative humidity in %
+ * @returns {number} Feels-like temperature in °C
+ */
+function calcFeelsLike(tempC, windKmh, humidity) {
+  const windMs = windKmh / 3.6; // Convert km/h to m/s
+
+  if (tempC <= 10 && windKmh > 4.8) {
+    // NWS Wind Chill (works in °F/mph, convert back)
+    const tf = tempC * 9 / 5 + 32;
+    const mph = windKmh * 0.621371;
+    const wc = 35.74 + 0.6215 * tf - 35.75 * Math.pow(mph, 0.16) + 0.4275 * tf * Math.pow(mph, 0.16);
+    return (wc - 32) * 5 / 9;
+  }
+
+  if (tempC >= 27 && humidity >= 40) {
+    // NWS Heat Index (Rothfusz regression, in °F)
+    const tf = tempC * 9 / 5 + 32;
+    const rh = humidity;
+
+    // Start with simple formula
+    let hi = 0.5 * (tf + 61.0 + (tf - 68.0) * 1.2 + rh * 0.094);
+
+    // If above 80°F, use full Rothfusz regression
+    if (hi >= 80) {
+      hi = -42.379 + 2.04901523 * tf + 10.14333127 * rh
+        - 0.22475541 * tf * rh - 0.00683783 * tf * tf
+        - 0.05481717 * rh * rh + 0.00122874 * tf * tf * rh
+        + 0.00085282 * tf * rh * rh - 0.00000199 * tf * tf * rh * rh;
+
+      // Low humidity adjustment
+      if (rh < 13 && tf >= 80 && tf <= 112) {
+        hi -= ((13 - rh) / 4) * Math.sqrt((17 - Math.abs(tf - 95)) / 17);
+      }
+      // High humidity adjustment
+      if (rh > 85 && tf >= 80 && tf <= 87) {
+        hi += ((rh - 85) / 10) * ((87 - tf) / 5);
+      }
+    }
+
+    return (hi - 32) * 5 / 9;
+  }
+
+  // 10–27°C: Australian Apparent Temperature
+  // AT = Ta + 0.33×e − 0.70×ws − 4.00
+  // e = (humidity / 100) × 6.105 × exp(17.27 × Ta / (237.7 + Ta))
+  const e = (humidity / 100) * 6.105 * Math.exp((17.27 * tempC) / (237.7 + tempC));
+  return tempC + 0.33 * e - 0.70 * windMs - 4.00;
+}
+
+/**
  * Custom hook for weather fetching, geolocation, and outfit recommendation.
  */
 export function useWeather({ returnTime, inventory, preferences }) {
@@ -27,19 +86,27 @@ export function useWeather({ returnTime, inventory, preferences }) {
         locationName = geoData.results[0].name;
       } else throw new Error("Invalid parameters.");
 
-      const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,precipitation,weather_code&timezone=auto`;
+      const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=auto`;
       const response = await fetch(weatherUrl);
       const data = await response.json();
 
+      const temp = data.current.temperature_2m;
+      const windKmh = data.current.wind_speed_10m;
+      const humidity = data.current.relative_humidity_2m;
+
+      // Calculate feels-like using standard formulas
+      const feelsLike = calcFeelsLike(temp, windKmh, humidity);
+
       const isNight = parseInt(returnTime.split(':')[0]) >= 18;
       const eveningDrop = isNight ? 4.2 : 0.5;
-      const simulatedReturnFeelsLike = data.current.apparent_temperature - eveningDrop;
+      const simulatedReturnFeelsLike = feelsLike - eveningDrop;
 
       setWeather({
         location: locationName,
         current: {
-          temp: parseFloat(data.current.temperature_2m.toFixed(1)),
-          feels_like: parseFloat(data.current.apparent_temperature.toFixed(1)),
+          temp: parseFloat(temp.toFixed(1)),
+          feels_like: parseFloat(feelsLike.toFixed(1)),
+          wind: parseFloat(windKmh.toFixed(0)),
           condition: WMO_WEATHER_CODES[data.current.weather_code] || "Clear",
           pop: data.current.precipitation > 0 ? 80 : 5
         },
