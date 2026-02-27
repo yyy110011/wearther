@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
 import { CloudSun, Briefcase, Settings, RefreshCw } from 'lucide-react';
+import PullToRefresh from 'react-simple-pull-to-refresh';
 import { DEFAULT_INVENTORY } from './constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useWeather } from './hooks/useWeather';
-import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { DailyTab } from './components/DailyTab';
 import { TripTab } from './components/TripTab';
 import { SettingsTab } from './components/SettingsTab';
@@ -22,14 +22,11 @@ const App = () => {
     returnTime, inventory, preferences
   });
 
-  // Pull-to-refresh
   const onRefresh = useCallback(async () => {
     if (activeTab === 'daily') {
       await handleGeolocation();
     }
   }, [activeTab, handleGeolocation]);
-
-  const { scrollRef, pullDistance, refreshing, touchHandlers, progress } = usePullToRefresh(onRefresh);
 
   return (
     <div className="h-full flex flex-col bg-slate-50 text-slate-900 font-sans">
@@ -47,23 +44,23 @@ const App = () => {
         </nav>
       </header>
 
-      {/* Pull-to-refresh indicator */}
-      <div
-        className="flex items-center justify-center overflow-hidden transition-all duration-200 ease-out bg-slate-50 shrink-0"
-        style={{ height: pullDistance > 0 ? `${pullDistance}px` : '0px' }}
-      >
-        <RefreshCw
-          size={20}
-          className={`text-slate-400 transition-transform ${refreshing ? 'animate-spin' : ''}`}
-          style={{ transform: `rotate(${progress * 360}deg)`, opacity: progress }}
-        />
-      </div>
-
-      <main
-        ref={scrollRef}
-        {...touchHandlers}
+      <PullToRefresh
+        onRefresh={onRefresh}
+        isPullable={activeTab === 'daily'}
+        pullingContent={
+          <div className="flex justify-center py-3">
+            <RefreshCw size={18} className="text-slate-300" />
+          </div>
+        }
+        refreshingContent={
+          <div className="flex justify-center py-3">
+            <RefreshCw size={18} className="text-slate-400 animate-spin" />
+          </div>
+        }
+        resistance={3}
+        maxPullDownDistance={80}
+        pullDownThreshold={60}
         className="flex-1 overflow-y-auto overscroll-none"
-        style={{ WebkitOverflowScrolling: 'touch' }}
       >
         <div className="max-w-md mx-auto p-6 pb-24 space-y-6">
           {activeTab === 'daily' && (
@@ -83,7 +80,7 @@ const App = () => {
             <SettingsTab preferences={preferences} setPreferences={setPreferences} inventory={inventory} setInventory={setInventory} />
           )}
         </div>
-      </main>
+      </PullToRefresh>
 
       <footer className="bg-white/80 backdrop-blur-xl border-t border-slate-100 p-4 text-center shrink-0 safe-bottom z-20">
         <p className="text-[9px] text-slate-300 font-black tracking-[0.4em] uppercase">Wearther // Engine v3.8.2</p>
