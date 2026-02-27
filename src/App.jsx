@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { CloudSun, Briefcase, Settings } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { CloudSun, Briefcase, Settings, RefreshCw } from 'lucide-react';
 import { DEFAULT_INVENTORY } from './constants';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useWeather } from './hooks/useWeather';
+import { usePullToRefresh } from './hooks/usePullToRefresh';
 import { DailyTab } from './components/DailyTab';
 import { TripTab } from './components/TripTab';
 import { SettingsTab } from './components/SettingsTab';
@@ -21,9 +22,18 @@ const App = () => {
     returnTime, inventory, preferences
   });
 
+  // Pull-to-refresh
+  const onRefresh = useCallback(async () => {
+    if (activeTab === 'daily') {
+      await handleGeolocation();
+    }
+  }, [activeTab, handleGeolocation]);
+
+  const { scrollRef, pullDistance, refreshing, touchHandlers, progress } = usePullToRefresh(onRefresh);
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-24">
-      <header className="bg-white border-b border-slate-100 px-6 py-4 sticky top-0 z-20 flex justify-between items-center shadow-sm">
+    <div className="h-full flex flex-col bg-slate-50 text-slate-900 font-sans">
+      <header className="bg-white border-b border-slate-100 px-6 py-4 flex justify-between items-center shadow-sm safe-top shrink-0 z-20">
         <h1 className="text-xl font-black tracking-tighter flex items-center gap-2">
           <div className="bg-black text-white p-1.5 rounded-lg"><CloudSun size={20} /></div> Wearther
         </h1>
@@ -37,27 +47,46 @@ const App = () => {
         </nav>
       </header>
 
-      <main className="max-w-md mx-auto p-6 space-y-6">
-        {activeTab === 'daily' && (
-          <DailyTab
-            weather={weather} recommendation={recommendation} loading={loading}
-            returnTime={returnTime} setReturnTime={setReturnTime}
-            searchCity={searchCity} setSearchCity={setSearchCity}
-            fetchWeather={fetchWeather} handleGeolocation={handleGeolocation}
-          />
-        )}
+      {/* Pull-to-refresh indicator */}
+      <div
+        className="flex items-center justify-center overflow-hidden transition-all duration-200 ease-out bg-slate-50 shrink-0"
+        style={{ height: pullDistance > 0 ? `${pullDistance}px` : '0px' }}
+      >
+        <RefreshCw
+          size={20}
+          className={`text-slate-400 transition-transform ${refreshing ? 'animate-spin' : ''}`}
+          style={{ transform: `rotate(${progress * 360}deg)`, opacity: progress }}
+        />
+      </div>
 
-        {activeTab === 'trip' && (
-          <TripTab trips={trips} setTrips={setTrips} inventory={inventory} preferences={preferences} />
-        )}
+      <main
+        ref={scrollRef}
+        {...touchHandlers}
+        className="flex-1 overflow-y-auto overscroll-none"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        <div className="max-w-md mx-auto p-6 pb-24 space-y-6">
+          {activeTab === 'daily' && (
+            <DailyTab
+              weather={weather} recommendation={recommendation} loading={loading}
+              returnTime={returnTime} setReturnTime={setReturnTime}
+              searchCity={searchCity} setSearchCity={setSearchCity}
+              fetchWeather={fetchWeather} handleGeolocation={handleGeolocation}
+            />
+          )}
 
-        {activeTab === 'settings' && (
-          <SettingsTab preferences={preferences} setPreferences={setPreferences} inventory={inventory} setInventory={setInventory} />
-        )}
+          {activeTab === 'trip' && (
+            <TripTab trips={trips} setTrips={setTrips} inventory={inventory} preferences={preferences} />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsTab preferences={preferences} setPreferences={setPreferences} inventory={inventory} setInventory={setInventory} />
+          )}
+        </div>
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-slate-100 p-4 text-center z-20">
-        <p className="text-[9px] text-slate-300 font-black tracking-[0.4em] uppercase">Wearther // Engine v3.8.2 // Custom Asset Icons</p>
+      <footer className="bg-white/80 backdrop-blur-xl border-t border-slate-100 p-4 text-center shrink-0 safe-bottom z-20">
+        <p className="text-[9px] text-slate-300 font-black tracking-[0.4em] uppercase">Wearther // Engine v3.8.2</p>
       </footer>
     </div>
   );
